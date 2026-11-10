@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="자동 스윙 매매 앱 오토스윙의 화면, 아키텍처, 보안 설계와 문제 해결 사례">
+<meta property="og:title" content="오토스윙 포트폴리오">
+<meta property="og:type" content="website">
+<meta property="og:image" content="img/16b_swing_expanded.webp">
+<style>:root{color-scheme:light dark;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>오토스윙 포트폴리오</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: 좁은 본문 칼럼 + 폰 스크린샷을 옆에 붙이는 기능 섹션, 레이어형 아키텍처 다이어그램 */
+:root {
+  --bg: #f5f8f8;
+  --surface: #ffffff;
+  --fg: #14232a;
+  --muted: #5a6c72;
+  --line: #dce5e6;
+  --accent: #1f9e94;
+  --accent-soft: #e0f4f1;
+  --up: #e0483f;
+  --down: #2f74e0;
+  --warn: #b7791f;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1618; --surface: #142124; --fg: #e3eef0; --muted: #93a7ac; --line: #22343a;
+    --accent: #4ecdc4; --accent-soft: #15322f; --up: #ff6b62; --down: #6ea4ff; --warn: #e3b35c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1618; --surface: #142124; --fg: #e3eef0; --muted: #93a7ac; --line: #22343a;
+  --accent: #4ecdc4; --accent-soft: #15322f; --up: #ff6b62; --down: #6ea4ff; --warn: #e3b35c;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 16px; line-height: 1.7;
+  word-break: keep-all; overflow-wrap: anywhere;
+}
+.wrap {
+  max-width: 1040px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+h1, h2, h3 { text-wrap: balance; line-height: 1.3; margin: 0; }
+h2 { font-size: clamp(1.5rem, 3vw, 1.9rem); font-weight: 700; letter-spacing: -0.01em; }
+h3 { font-size: 1.15rem; font-weight: 600; }
+p { margin: 0; }
+.eyebrow {
+  font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--accent);
+}
+.muted { color: var(--muted); }
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+.sec-head { display: grid; gap: 10px; margin-bottom: 36px; max-width: 64ch; }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.up { color: var(--up); } .down { color: var(--down); }
+
+/* Phone frame */
+.phone {
+  width: 100%; max-width: 100%; aspect-ratio: 750 / 1630;
+  border-radius: 28px; overflow: hidden; background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 40px -24px rgba(20, 50, 55, 0.45);
+}
+.phone img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* Hero */
+.hero { padding-block: 64px 56px; }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 48px; align-items: center; }
+.brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.hero h1 { font-size: clamp(2.4rem, 6vw, 3.6rem); font-weight: 700; letter-spacing: -0.03em; }
+.hero h1 span { color: var(--accent); }
+.brand small { font-family: var(--font-mono); color: var(--muted); font-size: 0.95rem; }
+.lede { font-size: 1.15rem; margin-top: 18px; max-width: 34ch; }
+.hero-copy { display: grid; gap: 22px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  font-size: 0.82rem; padding: 4px 11px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--fg); border: 1px solid transparent;
+}
+.chip.ghost { background: transparent; border-color: var(--line); color: var(--muted); }
+.hero-phones { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.hero-phones .phone:last-child { margin-top: 48px; }
+
+/* Stats */
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.stat { background: var(--surface); padding: 20px; display: grid; gap: 4px; }
+.stat b { font-family: var(--font-mono); font-size: 1.7rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 0.88rem; color: var(--muted); }
+
+/* Feature rows */
+.features { display: grid; gap: 64px; }
+.feature { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 48px; align-items: center; }
+.feature.flip { grid-template-columns: minmax(0, 1fr) 260px; }
+.feature.flip .shots { order: 2; }
+.feature .shots { display: grid; gap: 12px; }
+.feature .shots.two { grid-template-columns: 1fr 1fr; }
+.feature.wide { grid-template-columns: 420px minmax(0, 1fr); }
+.feature-copy { display: grid; gap: 14px; max-width: 60ch; min-width: 0; }
+.points { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.points li { padding-left: 18px; position: relative; color: var(--fg); }
+.points li::before { content: ""; position: absolute; left: 0; top: 0.72em; width: 7px; height: 7px; border-radius: 2px; background: var(--accent); }
+.tag { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); }
+
+/* Gallery */
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 24px 18px; }
+.gallery figure { margin: 0; display: grid; gap: 10px; }
+.gallery figcaption { font-size: 0.9rem; }
+.gallery figcaption b { display: block; font-weight: 600; }
+.gallery figcaption span { color: var(--muted); font-size: 0.83rem; }
+
+/* Architecture */
+.arch { display: grid; gap: 0; }
+.layer { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 20px; align-items: stretch; }
+.layer-label { font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.06em; color: var(--muted); padding-top: 14px; text-transform: uppercase; }
+.nodes { display: flex; flex-wrap: wrap; gap: 10px; }
+.node {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 14px; display: grid; gap: 2px; min-width: 0; flex: 1 1 180px;
+}
+.node b { font-size: 0.95rem; font-weight: 600; }
+.node span { font-size: 0.82rem; color: var(--muted); line-height: 1.5; }
+.node.core { border-color: var(--accent); background: var(--accent-soft); }
+.link { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 20px; }
+.link div:last-child {
+  border-left: 2px dashed var(--accent); margin-left: 24px; padding: 10px 0 10px 16px;
+  font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted);
+}
+.arch-note { margin-top: 28px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.arch-note div { border-top: 2px solid var(--line); padding-top: 12px; font-size: 0.92rem; }
+.arch-note b { display: block; margin-bottom: 4px; }
+
+/* State machine */
+.states { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; counter-reset: s; }
+.state { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 6px; align-content: start; }
+.state .code { font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent); }
+.state b { font-size: 0.98rem; }
+.state p { font-size: 0.85rem; color: var(--muted); line-height: 1.55; }
+.rules { margin-top: 28px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.rule { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 22px; display: grid; gap: 12px; align-content: start; }
+.rule h3 { display: flex; gap: 8px; align-items: center; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
+/* Problems */
+.problems { display: grid; gap: 0; }
+.problem { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 32px; padding-block: 26px; border-bottom: 1px solid var(--line); }
+.problem:first-child { border-top: 1px solid var(--line); }
+.problem h3 { margin-bottom: 6px; }
+.problem .where { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); overflow-wrap: anywhere; }
+.problem dl { margin: 0; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px 14px; font-size: 0.95rem; }
+.problem dt { font-size: 0.78rem; font-weight: 600; color: var(--muted); padding-top: 3px; }
+.problem dd { margin: 0; }
+
+/* Auth flow */
+.flow { margin: 0; padding: 0; list-style: none; display: grid; gap: 0; counter-reset: step; }
+.flow li { counter-increment: step; display: grid; grid-template-columns: 44px minmax(0, 1fr) minmax(0, 0.9fr); gap: 20px; padding-block: 18px; border-bottom: 1px solid var(--line); align-items: start; }
+.flow li:first-child { border-top: 1px solid var(--line); }
+.flow li::before { content: counter(step); font-family: var(--font-mono); width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 0.85rem; font-weight: 500; }
+.flow b { display: block; margin-bottom: 2px; }
+.flow .res { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); overflow-wrap: anywhere; }
+.flow .res em { font-style: normal; color: var(--warn); }
+.flow .res strong { font-weight: 500; color: var(--accent); }
+.layers { margin-top: 36px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.guard { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 10px; align-content: start; }
+.guard .tag { color: var(--accent); }
+.guard p { font-size: 0.9rem; color: var(--muted); line-height: 1.6; }
+.subhead { margin: 44px 0 16px; font-size: 1.05rem; font-weight: 600; }
+.mon { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.mon .rule p { font-size: 0.93rem; }
+code { font-family: var(--font-mono); font-size: 0.86em; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+@media (max-width: 860px) {
+  .flow li { grid-template-columns: 36px minmax(0, 1fr); }
+  .flow .res { grid-column: 2; }
+  .layers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mon { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) { .layers { grid-template-columns: 1fr; } }
+
+/* Stack table */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.93rem; }
+th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font-size: 0.78rem; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; }
+td:first-child { font-weight: 600; white-space: nowrap; }
+
+footer { padding-block: 40px 56px; border-top: 1px solid var(--line); font-size: 0.85rem; color: var(--muted); }
+
+@media (max-width: 860px) {
+  .hero-grid { grid-template-columns: 1fr; }
+  .hero-phones { max-width: 420px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .feature, .feature.flip, .feature.wide { grid-template-columns: 1fr; gap: 24px; }
+  .feature.flip .shots { order: 0; }
+  .feature .shots { max-width: 260px; }
+  .feature .shots.two, .feature.wide .shots { max-width: 420px; }
+  .states { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rules, .arch-note, .problem { grid-template-columns: 1fr; }
+  .problem { gap: 14px; }
+  .layer, .link { grid-template-columns: 1fr; gap: 6px; }
+  .layer-label { padding-top: 0; }
+  .link div:first-child { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .phone { transition: transform .25s ease; }
+  .phone:hover { transform: translateY(-3px); }
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <p class="eyebrow">개인 프로젝트 · 모바일 + 백엔드 풀스택</p>
+      <div class="brand">
+        <h1>오토<span>스윙</span></h1>
+        <small>AutoSwing</small>
+      </div>
+      <p class="lede">이동평균선과 거래량 지표로 국내·미국 주식을 자동 스윙 매매하는 앱입니다. 전략 설정부터 백테스트, 주문 체결 알림까지 앱 하나로 관리합니다.</p>
+      <div class="chips">
+        <span class="chip">React Native · Expo 54</span>
+        <span class="chip">TypeScript</span>
+        <span class="chip">FastAPI · Python 3.12</span>
+        <span class="chip">MariaDB · Redis</span>
+        <span class="chip">한국투자증권 Open API</span>
+        <span class="chip ghost">Docker · Jenkins · Sentry</span>
+        <span class="chip ghost">기기 승인 인증 · HTTPS</span>
+      </div>
+    </div>
+    <div class="hero-phones">
+      <div class="phone"><img src="img/16b_swing_expanded.webp" alt="스윙 탭: 총 자본금, 보유 손익, 종목별 스윙 카드"></div>
+      <div class="phone"><img src="img/14_price.webp" alt="NVIDIA 시세와 실시간 호가 화면"></div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="wrap" style="padding-block: 0 72px;">
+    <div class="stats">
+      <div class="stat"><b>2</b><span>지원 시장 (국내 KRX · 미국 NYSE/NASDAQ/AMEX)</span></div>
+      <div class="stat"><b>5분</b><span>장중 자동매매 배치 주기</span></div>
+      <div class="stat"><b>641</b><span>백엔드 pytest 테스트 수</span></div>
+      <div class="stat"><b>64%</b><span>테스트 커버리지 (pytest-cov)</span></div>
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">주요 기능</p>
+        <h2>종목을 고르면 매수, 손절, 익절은 서버가 알아서 합니다</h2>
+        <p class="muted">사용자는 종목과 계좌 단위 위험 한도만 정합니다. 신호 계산, 포지션 크기, 주문, 체결 확인은 백엔드 배치가 맡습니다.</p>
+      </div>
+
+      <div class="features">
+        <article class="feature">
+          <div class="shots"><div class="phone"><img src="img/16b_swing_expanded.webp" alt="스윙 대시보드"></div></div>
+          <div class="feature-copy">
+            <p class="tag">app/(tabs)/swing/index.tsx</p>
+            <h3>스윙 대시보드</h3>
+            <p>계좌의 총 자본금을 현금, 파킹 ETF, 보유 주식으로 나눠 보여주고, 종목마다 매입가와 현재가, 평가손익을 카드로 정리했습니다.</p>
+            <ul class="points">
+              <li>보유 중 손익과 누적 손익(추정 원금 대비)을 따로 계산해 보여줍니다.</li>
+              <li>국내/미국 탭을 바꾸면 통화와 시장이 함께 전환됩니다.</li>
+              <li>모의투자와 실전투자 계좌를 배지로 구분해 실수를 막습니다.</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="feature flip">
+          <div class="shots"><div class="phone"><img src="img/22_pool.webp" alt="풀 설정 화면"></div></div>
+          <div class="feature-copy">
+            <p class="tag">app/(tabs)/swing/pool.tsx · domain/pool</p>
+            <h3>풀 설정과 현금 파킹</h3>
+            <p>종목별로 금액을 나눠 배정하던 방식을 없애고, 계좌×시장 하나를 '풀'로 묶었습니다. 매수 금액은 총자산 대비 리스크 비율로 자동 계산됩니다.</p>
+            <ul class="points">
+              <li>동시 보유 종목 수만 정하면 종목당 최대 비중(95% ÷ N)과 1종목 손실 한도가 바로 계산됩니다.</li>
+              <li>남는 현금은 버튼 한 번으로 단기 국채 ETF(SGOV)에 넣어둡니다.</li>
+              <li>매수 신호가 나오면 부족한 금액만큼만 파킹 ETF를 먼저 팔고 매수합니다.</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="feature wide">
+          <div class="shots two">
+            <div class="phone"><img src="img/18_chart.webp" alt="종목 차트와 20EMA"></div>
+            <div class="phone"><img src="img/21_backtest_result.webp" alt="백테스팅 결과"></div>
+          </div>
+          <div class="feature-copy">
+            <p class="tag">swing/detail.tsx · swing/backtesting.tsx</p>
+            <h3>차트와 백테스트</h3>
+            <p>스윙 상세 화면에서 일봉 캔들과 20일 지수이동평균(20EMA), 실제 매수·매도 지점을 함께 봅니다. 같은 조건으로 최근 2년 데이터를 돌려 예상 수익률도 확인할 수 있습니다.</p>
+            <ul class="points">
+              <li>백테스트는 실매매와 같은 신호 정의를 쓰되, 과거 봉 배열을 받는 별도 레이어로 분리했습니다.</li>
+              <li>계산은 ThreadPoolExecutor에서 돌리고 Semaphore(2)로 동시 실행을 막아 API 응답이 멈추지 않습니다.</li>
+              <li>예시 화면의 UNH는 이 기간 <span class="num down">-10.20%</span>로, 전략이 잘 맞지 않는 종목도 미리 걸러낼 수 있습니다.</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="feature wide flip">
+          <div class="shots two">
+            <div class="phone"><img src="img/14_price.webp" alt="시세·호가 화면"></div>
+            <div class="phone"><img src="img/26_review_detail.webp" alt="AI 종목 분석 결과"></div>
+          </div>
+          <div class="feature-copy">
+            <p class="tag">stock/price.tsx · review/[code].tsx · domain/stock_review</p>
+            <h3>시세, 호가, AI 종목 분석</h3>
+            <p>종목 화면에서 현재가와 10단계 호가를 보고, AI 분석을 요청하면 Gemini가 차트·재무·수급·뉴스를 모아 투자 판단(매수/보류/회피)과 근거를 정리합니다.</p>
+            <ul class="points">
+              <li>분석은 1~2분 걸리므로 백그라운드 작업으로 돌리고, 상태는 Redis에 둡니다. 헤더의 모래시계가 체크 표시로 바뀌면 결과를 볼 수 있습니다.</li>
+              <li>전략 설명문은 매매 로직과 같은 상수에서 만들어 AI에 넘기고, 테스트로 둘이 어긋나지 않게 지킵니다.</li>
+              <li>결과 화면에서 바로 스윙 종목으로 등록할 수 있습니다.</li>
+            </ul>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">화면 구성</p>
+        <h2>로그인부터 알림 설정까지</h2>
+        <p class="muted">iPhone 16 Pro 시뮬레이터에서 모의투자 계좌로 캡처했습니다. 이름, 계좌번호, 프로필 사진은 모자이크 처리했습니다.</p>
+      </div>
+      <div class="gallery">
+        <figure><div class="phone"><img src="img/00_login.webp" alt="로그인 화면" loading="lazy"></div><figcaption><b>로그인</b><span>Google OAuth 후 자체 JWT 발급</span></figcaption></figure>
+        <figure><div class="phone"><img src="img/10_account.webp" alt="계좌 선택 화면" loading="lazy"></div><figcaption><b>계좌 선택</b><span>실전·모의 계좌 여러 개 등록</span></figcaption></figure>
+        <figure><div class="phone"><img src="img/11_home_rank.webp" alt="홈 랭킹 화면" loading="lazy"></div><figcaption><b>홈 · 순위</b><span>등락률, 거래량, 체결강도 순위</span></figcaption></figure>
+        <figure><div class="phone"><img src="img/13_search.webp" alt="종목 검색 화면" loading="lazy"></div><figcaption><b>종목 검색</b><span>종목명과 코드로 국내·미국 검색</span></figcaption></figure>
+        <figure><div class="phone"><img src="img/14_price.webp" alt="시세 화면" loading="lazy"></div><figcaption><b>시세 · 호가</b><span>기준가, 시가, 고가, 저가와 호가</span></figcaption></figure>
+        <figure><div class="phone"><img src="img/25_review.webp" alt="AI 분석 목록" loading="lazy"></div><figcaption><b>AI 분석 목록</b><span>최근 24시간 요청 기록</span></figcaption></figure>
+        <figure><div class="phone"><img src="img/17_detail.webp" alt="스윙 상세 설정" loading="lazy"></div><figcaption><b>스윙 상세</b><span>전략 유형과 주문 설정, 활성화</span></figcaption></figure>
+        <figure><div class="phone"><img src="img/18_chart.webp" alt="스윙 차트" loading="lazy"></div><figcaption><b>스윙 차트</b><span>캔들, 20EMA, 매수·매도 표시</span></figcaption></figure>
+        <figure><div class="phone"><img src="img/21_backtest_result.webp" alt="백테스팅 결과" loading="lazy"></div><figcaption><b>백테스팅 결과</b><span>2년 시뮬레이션 수익률</span></figcaption></figure>
+        <figure><div class="phone"><img src="img/22_pool.webp" alt="풀 설정" loading="lazy"></div><figcaption><b>풀 설정</b><span>보유 종목 수, 리스크 한도, 파킹</span></figcaption></figure>
+        <figure><div class="phone"><img src="img/23_my.webp" alt="마이페이지" loading="lazy"></div><figcaption><b>마이페이지</b><span>계좌 정보, 알림 설정, 로그아웃</span></figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="architecture">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">시스템 아키텍처</p>
+        <h2>앱은 화면만, 매매 판단은 서버 배치가</h2>
+        <p class="muted">앱이 꺼져 있어도 매매가 돌아가야 하므로 신호 계산과 주문은 모두 서버 스케줄러가 맡고, 앱은 조회와 설정, 알림 수신만 합니다.</p>
+      </div>
+
+      <div class="arch" role="img" aria-label="모바일 앱에서 Tailscale Funnel, FastAPI, 데이터 저장소와 외부 API로 이어지는 계층 구조">
+        <div class="layer">
+          <div class="layer-label">Client</div>
+          <div class="nodes">
+            <div class="node core"><b>오토스윙 앱</b><span>Expo 54 · expo-router · Zustand · Axios</span></div>
+            <div class="node"><b>보안 저장소</b><span>expo-secure-store에 access/refresh 토큰</span></div>
+            <div class="node"><b>Expo Notifications</b><span>체결 푸시 수신</span></div>
+          </div>
+        </div>
+        <div class="link"><div></div><div>HTTPS · Authorization: Bearer JWT · X-Device-ID</div></div>
+        <div class="layer">
+          <div class="layer-label">Edge</div>
+          <div class="nodes">
+            <div class="node"><b>Tailscale Funnel</b><span>공개 TLS 진입점. 서버 포트는 127.0.0.1에만 바인딩</span></div>
+          </div>
+        </div>
+        <div class="link"><div></div><div>reverse proxy → uvicorn :8000</div></div>
+        <div class="layer">
+          <div class="layer-label">API Server</div>
+          <div class="nodes">
+            <div class="node"><b>미들웨어</b><span>기기 화이트리스트 검사(Redis 5분 캐시), 전역 예외 핸들러</span></div>
+            <div class="node core"><b>FastAPI 도메인</b><span>user · oauth · account · stock · swing · pool · order · trade_history · stock_review · notification</span></div>
+            <div class="node core"><b>APScheduler</b><span>KST/ET 크론. 5분마다 trade_job, 장 마감 후 일봉 수집</span></div>
+          </div>
+        </div>
+        <div class="link"><div></div><div>async SQLAlchemy · redis-py · httpx(재시도·레이트리밋)</div></div>
+        <div class="layer">
+          <div class="layer-label">Data · External</div>
+          <div class="nodes">
+            <div class="node"><b>MariaDB</b><span>계좌, 스윙, 체결, 일봉 히스토리</span></div>
+            <div class="node"><b>Redis</b><span>KIS 토큰, 세션, 전략 상태, 분산 락</span></div>
+            <div class="node"><b>한국투자증권 Open API</b><span>국내·해외 시세, 주문, 잔고, 체결 (실전/모의 분기)</span></div>
+            <div class="node"><b>Gemini · Finnhub</b><span>AI 종목 분석, 미국 재무 데이터</span></div>
+            <div class="node"><b>Expo Push API</b><span>100건 배치, 3회 재시도</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arch-note">
+        <div><b>배포</b>Jenkins가 Docker 이미지를 빌드하고 빌드 번호 태그로 롤백합니다. docker-compose가 MariaDB, Redis, 앱을 헬스체크 순서대로 띄웁니다.</div>
+        <div><b>보안</b>KIS 앱키와 계좌 정보는 AES로 암호화해 저장합니다. DB와 Redis는 외부 포트를 열지 않고 SSH 터널로만 접근합니다.</div>
+        <div><b>모니터링</b>Sentry로 오류와 업타임을 수집합니다. 승인되지 않은 기기 요청은 500 대신 403으로 바로 돌려보내 알림 노이즈를 줄였습니다.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="security">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">보안 · 인증</p>
+        <h2>로그인만으로는 들어올 수 없게, 기기까지 승인받도록</h2>
+        <p class="muted">증권 계좌로 실제 주문이 나가는 서버라서 Google 계정이 털려도 다른 기기에서는 API를 쓸 수 없게 설계했습니다. 사용자 인증(JWT)과 별도로 기기 화이트리스트를 한 겹 더 두었습니다.</p>
+      </div>
+
+      <ol class="flow">
+        <li>
+          <div><b>기기 ID 발급</b>앱 최초 실행 시 iOS는 identifierForVendor, Android는 기기 고유 ID를 읽어 보안 저장소에 보관합니다.</div>
+          <div class="res">utils/device.ts</div>
+        </li>
+        <li>
+          <div><b>Google 로그인 요청</b>Google OAuth 토큰과 함께 기기 ID와 기기 이름을 서버로 보냅니다.</div>
+          <div class="res">POST /oauth/google/login</div>
+        </li>
+        <li>
+          <div><b>처음 보는 기기면 승인 대기</b>DEVICE 테이블에 비활성 상태로 저장하고, 관리자에게 기기 등록 요청 이메일을 보냅니다. 이때는 토큰을 발급하지 않습니다.</div>
+          <div class="res">→ <em>DEVICE_PENDING</em> · SMTP 알림</div>
+        </li>
+        <li>
+          <div><b>승인된 기기만 토큰 발급</b>서버가 자체 JWT를 발급합니다. refresh 토큰은 Redis에도 저장해, 갱신할 때 보낸 값과 저장된 값이 같아야만 통과합니다. 로그아웃하면 Redis에서 지웁니다.</div>
+          <div class="res">→ <strong>access 15분</strong> · <strong>refresh 7일</strong> (HS256)</div>
+        </li>
+        <li>
+          <div><b>모든 요청에서 기기 재검증</b>DeviceAuthMiddleware가 <code>X-Device-ID</code> 헤더를 먼저 확인한 뒤 JWT를 검증합니다. 허용 결과는 Redis에 5분, 거부 결과는 1분만 캐시해 승인 취소가 빨리 반영되게 했습니다.</div>
+          <div class="res">헤더 없음·미승인 → 403</div>
+        </li>
+        <li>
+          <div><b>앱에서 자동 갱신</b>Axios 인터셉터가 모든 요청에 JWT와 기기 ID를 붙이고, 401을 받으면 refresh 토큰으로 갱신한 뒤 원래 요청을 다시 보냅니다.</div>
+          <div class="res">contexts/backEndApi.ts</div>
+        </li>
+      </ol>
+
+      <div class="layers">
+        <div class="guard"><span class="tag">네트워크</span><b>공개 포트 없음</b><p>서버, DB, Redis 포트를 모두 127.0.0.1에만 바인딩했습니다. 외부에서는 Tailscale Funnel의 HTTPS 443으로만 들어오고, DB는 SSH 터널로만 접속합니다.</p></div>
+        <div class="guard"><span class="tag">기기</span><b>화이트리스트</b><p>승인된 기기 ID만 API를 호출합니다. 헬스체크, 문서, 로그인 경로만 검사에서 뺐습니다.</p></div>
+        <div class="guard"><span class="tag">사용자</span><b>JWT + 서버 세션</b><p>서명과 만료만 보는 게 아니라 Redis의 refresh 토큰과 대조해, 서버에서 세션을 끊을 수 있습니다.</p></div>
+        <div class="guard"><span class="tag">데이터</span><b>암호화 저장</b><p>증권사 앱키, 시크릿, 계좌 정보는 AES로 암호화해 DB에 넣고, 사용할 때만 복호화합니다.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="ops">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">운영 · 모니터링</p>
+        <h2>홈 서버에서 무료로, 하지만 운영 환경처럼</h2>
+        <p class="muted">별도 클라우드 비용 없이 집 서버에서 운영합니다. Tailscale Funnel로 고정 도메인과 HTTPS 인증서를 무료로 받아, 공유기 포트를 열지 않고도 앱이 HTTPS로 접속합니다. 장애는 Sentry로 바로 알 수 있게 했습니다.</p>
+      </div>
+      <div class="mon">
+        <div class="rule">
+          <h3>무료 도메인과 HTTPS</h3>
+          <p>Tailscale Funnel이 <code>*.ts.net</code> 도메인과 TLS 인증서를 자동으로 발급하고 갱신합니다. Funnel 프록시가 127.0.0.1의 백엔드로 넘겨주므로 인증서 관리, 포트포워딩, 리버스 프록시 설정이 필요 없습니다.</p>
+          <p class="muted">개발 빌드는 <code>__DEV__</code> 플래그로 localhost를, 릴리즈 빌드는 이 도메인을 바라보게 나눴습니다.</p>
+        </div>
+        <div class="rule">
+          <h3>Sentry 오류 수집</h3>
+          <p>운영 컨테이너에서만 DSN을 넣어 켜고, 로컬 개발에서는 꺼집니다. <code>before_send</code>에서 4xx 성격의 도메인 예외는 버려서, 인터넷 스캐너가 <code>/keyfile.json</code> 같은 경로를 찔러도 쿼터가 줄지 않게 했습니다.</p>
+        </div>
+        <div class="rule">
+          <h3>민감정보 유출 차단</h3>
+          <p>토큰 발급 오류 이벤트에 증권사 appkey가 평문으로 실려 간 적이 있었습니다. 기본 스크러버는 키 이름이 정확히 같을 때만 가리고 중첩 dict는 보지 않기 때문입니다. <code>appkey</code>, <code>appsecret</code>, <code>access_token</code>을 덴리스트에 더하고 재귀 탐색을 켜서, 전송 전에 서버에서 지우도록 고쳤습니다.</p>
+        </div>
+        <div class="rule">
+          <h3>업타임 감시와 로그 정리</h3>
+          <p>Sentry Uptime 봇이 60초마다 루트 경로를 확인합니다. 이 요청이 액세스 로그를 덮지 않게 필터로 빼고, 봇이 아닌 발신자만 X-Forwarded-For와 User-Agent로 기록해 이상 접근을 따로 볼 수 있게 했습니다.</p>
+          <p class="muted">미들웨어의 접근 거부를 직접 403 응답으로 바꿔, 차단된 요청이 500 오류와 Sentry 이벤트로 남지 않게 했습니다.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="engine">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">매매 엔진</p>
+        <h2>단일 20EMA 전략의 상태 전이</h2>
+        <p class="muted">스윙마다 SIGNAL 값 하나로 상태를 관리합니다. 전량 매도 뒤에는 바로 0으로 돌아가지 않고 쿨다운 두 단계를 거쳐, 남은 매수세 때문에 곧바로 다시 사는 일을 막습니다.</p>
+      </div>
+      <div class="states">
+        <div class="state"><span class="code">SIGNAL 0</span><b>대기</b><p>진입 조건을 2회 연속(10분) 확인하면 매수</p></div>
+        <div class="state"><span class="code">SIGNAL 1</span><b>보유</b><p>청산선을 따라가며 손절·트레일링</p></div>
+        <div class="state"><span class="code">SIGNAL 2</span><b>부분 익절 후</b><p>+50%에서 절반 매도, 나머지 계속 보유</p></div>
+        <div class="state"><span class="code">SIGNAL 3</span><b>쿨다운</b><p>전량 매도 후 OBV 유출을 기다림</p></div>
+        <div class="state"><span class="code">SIGNAL 4</span><b>재유입 대기</b><p>자금이 다시 들어오면 0으로 복귀</p></div>
+      </div>
+      <div class="rules">
+        <div class="rule">
+          <h3><span class="dot" style="background: var(--up)"></span>진입 조건</h3>
+          <ul class="points">
+            <li>가격이 20EMA를 상향 돌파하고, 이격도 1.06배 이하, ADX 15 이상</li>
+            <li>OBV 누적과 z-score로 거래량 유입 확인</li>
+            <li>전일 5% 넘게 급등했거나 윗꼬리가 길면 진입하지 않음</li>
+            <li>주문 금액이 일평균 거래대금의 5% 안일 때만 매수</li>
+            <li>지표는 전일까지 확정된 봉만 사용해 미래 데이터 참조를 막음</li>
+          </ul>
+        </div>
+        <div class="rule">
+          <h3><span class="dot" style="background: var(--down)"></span>청산 규칙</h3>
+          <ul class="points">
+            <li>초기 청산선: max(진입가 − 2×ATR, 진입가 − 7%)</li>
+            <li>+20%부터 본전으로 올리고, +30%부터 고점 − 4×ATR로 추적. 청산선은 내려가지 않음</li>
+            <li>손절은 장 마감 직전 두 배치에서만 확정하고, 장중에는 청산선 − 1×ATR 아래 급락일 때만 즉시 매도</li>
+            <li>후보가 여럿이면 확신도(0.7×OBV + 0.3×ADX) 순으로 정렬해 현금 한도 안에서 하나씩 주문</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="problems">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">문제 해결</p>
+        <h2>실제 돈이 오가는 시스템에서 부딪힌 문제들</h2>
+      </div>
+      <div class="problems">
+        <article class="problem">
+          <div><h3>주문 결과를 모르는 상황</h3><p class="where">app/external/http_client.py · trading/order_executor.py</p></div>
+          <dl>
+            <dt>문제</dt><dd>주문 요청이 500으로 실패해 재시도했는데, 실제로는 첫 주문이 이미 체결돼 있었습니다.</dd>
+            <dt>해결</dt><dd>신규 주문 POST는 절대 재시도하지 않습니다. 타임아웃, 5xx, 레이트리밋 응답은 '결과 불명' 예외로 분리해 대기 상태로 기록하고, 다음 배치에서 체결 내역과 맞춰 확정합니다.</dd>
+          </dl>
+        </article>
+        <article class="problem">
+          <div><h3>증권사 API 호출 한도</h3><p class="where">app/external/rate_limiter.py</p></div>
+          <dl>
+            <dt>문제</dt><dd>KIS는 앱키당 초당 호출 수를 제한하는데, 세마포어나 최소 간격 방식으로는 네트워크 지연 때문에 한도 초과가 계속 났습니다.</dd>
+            <dt>해결</dt><dd>앱키별 슬라이딩 윈도우 리미터를 만들고 창을 1.3초로 잡아 지연을 흡수했습니다. 모의투자는 실측값을 바탕으로 주문 간 최소 2초 간격을 추가했습니다.</dd>
+          </dl>
+        </article>
+        <article class="problem">
+          <div><h3>접근 토큰 재발급 경쟁</h3><p class="where">app/external/kis_api.py</p></div>
+          <dl>
+            <dt>문제</dt><dd>여러 배치가 동시에 토큰 만료를 감지하면 재발급 요청이 몰리고, KIS가 기존 토큰을 그대로 돌려주는 경우 만료 시간이 어긋났습니다.</dd>
+            <dt>해결</dt><dd>Redis SET NX 락으로 재발급을 한 번만 하게 하고, TTL은 expires_in 대신 실제 만료 시각으로 계산합니다. 거부된 토큰은 Lua 스크립트로 비교 후 삭제합니다.</dd>
+          </dl>
+        </article>
+        <article class="problem">
+          <div><h3>파킹 ETF와 매수 배치의 충돌</h3><p class="where">trading/parking.py · pool_allocator.py</p></div>
+          <dl>
+            <dt>문제</dt><dd>사용자가 파킹 버튼을 누르는 순간 배치가 같은 현금으로 매수하면 잔고가 이중으로 쓰일 수 있습니다.</dd>
+            <dt>해결</dt><dd>파킹과 배치를 Redis 락으로 서로 배제하고, 체결될 때마다 풀 상태를 갱신한 뒤 다음 주문을 냅니다. 주문이 연속 3번 실패하면 그 배치의 매수를 중단합니다.</dd>
+          </dl>
+        </article>
+        <article class="problem">
+          <div><h3>앱의 반복 호출과 토큰 만료</h3><p class="where">contexts/backEndApi.ts</p></div>
+          <dl>
+            <dt>문제</dt><dd>서버 장애 때 화면이 같은 요청을 계속 보내 부하가 커졌고, 15분짜리 access 토큰이 만료되면 요청이 줄줄이 실패했습니다.</dd>
+            <dt>해결</dt><dd>Axios 인터셉터에서 401이 오면 refresh 토큰으로 갱신 후 원래 요청을 다시 보냅니다. 연속 5회 실패하면 30초 동안 요청을 막는 서킷 브레이커를 두고, 로딩 상태는 useApiLoading 훅으로 한곳에서 관리합니다.</dd>
+          </dl>
+        </article>
+        <article class="problem">
+          <div><h3>기록과 실제 잔고의 불일치</h3><p class="where">auto_swing_batch.py</p></div>
+          <dl>
+            <dt>문제</dt><dd>타임아웃이나 수동 매매 때문에 DB 기록과 증권사 실제 잔고가 달라질 수 있습니다.</dd>
+            <dt>해결</dt><dd>배치마다 체결 내역을 대조해 빠진 체결을 복구하고, 이미 보유 중인 종목은 새로 사지 않고 그대로 넘겨받습니다. 주문 취소 뒤에는 체결 여부를 다시 확인합니다.</dd>
+          </dl>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="stack">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">기술 스택</p>
+        <h2>사용 기술</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>영역</th><th>기술</th><th>선택 이유</th></tr></thead>
+          <tbody>
+            <tr><td>모바일</td><td>Expo SDK 54, React Native, TypeScript, expo-router</td><td>파일 기반 라우팅으로 탭·스택 구조를 단순하게 유지하고, EAS Update로 JS 변경을 바로 배포</td></tr>
+            <tr><td>상태 관리</td><td>Zustand</td><td>계좌·시장 선택처럼 여러 화면이 공유하는 상태만 전역으로 두기 위해</td></tr>
+            <tr><td>통신</td><td>Axios 인터셉터, expo-secure-store</td><td>JWT 자동 갱신과 기기 ID 헤더를 한곳에서 처리</td></tr>
+            <tr><td>백엔드</td><td>FastAPI, Pydantic v2, async SQLAlchemy 2.0, uv</td><td>증권사 API 대기 시간이 길어 비동기 I/O가 필수</td></tr>
+            <tr><td>배치</td><td>APScheduler (Asia/Seoul, America/New_York)</td><td>미국 서머타임을 포함해 두 시장 장 시간에 맞춘 크론</td></tr>
+            <tr><td>지표 계산</td><td>pandas, TA-Lib</td><td>EMA, ADX, ATR, OBV 등 검증된 구현 사용</td></tr>
+            <tr><td>저장소</td><td>MariaDB, Redis</td><td>거래 기록은 RDB, 토큰·락·전략 상태처럼 짧게 사는 값은 Redis</td></tr>
+            <tr><td>외부 API</td><td>한국투자증권 Open API, Google Gemini, Finnhub, Expo Push</td><td>국내·미국 매매, AI 분석, 미국 재무, 푸시 알림</td></tr>
+            <tr><td>운영</td><td>Docker Compose, Jenkins, Tailscale Funnel, Sentry, pytest</td><td>홈 서버에서 포트를 열지 않고 공개 HTTPS 제공, 641개 테스트로 회귀 방지</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">스크린샷은 모의투자 계좌 화면이며, 표시된 금액과 수익률은 실제 투자 성과가 아닙니다.</div>
+</footer>
+
+</body>
+</html>
